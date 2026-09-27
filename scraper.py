@@ -71,24 +71,38 @@ def get_robots():
     return rp, delay
 
 
-def fetch(url, limiter, rp, check_robots=True):
+def fetch(url, limiter, rp, check_robots=True, max_retries=4):
     if check_robots and not rp.can_fetch(USER_AGENT, url):
         raise PermissionError(
             f"robots.txt does not permit crawling: {url}"
         )
 
-    limiter.wait()
+    for attempt in range(max_retries):
+        limiter.wait()
 
-    print(f"GET {url}")
+        print(f"GET {url}")
 
-    response = session.get(
-        url,
-        timeout=30,
-    )
+        response = session.get(
+            url,
+            timeout=30,
+        )
 
-    response.raise_for_status()
+        if response.status_code in {429, 500, 502, 503, 504}:
+            if attempt == max_retries - 1:
+                response.raise_for_status()
 
-    return response
+            wait_time = 2 ** attempt
+            print(
+                f"HTTP {response.status_code}; "
+                f"retrying in {wait_time}s..."
+            )
+            time.sleep(wait_time)
+            continue
+
+        response.raise_for_status()
+        return response
+
+    raise RuntimeError(f"Failed to fetch: {url}")
 
 
 def parse_sitemap(url, limiter, rp, visited=None):
@@ -108,11 +122,10 @@ def parse_sitemap(url, limiter, rp, visited=None):
     visited.add(url)
 
     response = fetch(
-    url,
-    limiter,
-    rp,
-    check_robots=False
-)
+        url,
+        limiter,
+        rp
+    )
 
     content = response.content
 
@@ -653,6 +666,14 @@ def scrape_language(language, output_file):
         f"Found {len(university_urls)} university profiles"
     )
 
+    # Safety check: scrape only the 529 university profiles
+    # expected from the published sitemap.
+    if len(university_urls) != 529:
+        raise RuntimeError(
+            f"Expected 529 university profiles, "
+            f"but found {len(university_urls)}"
+        )
+
     results = []
 
     failed = []
@@ -772,6 +793,14 @@ def scrape_bilingual(output_file):
     print(
         f"Found {len(english_urls)} university profiles"
     )
+
+    # Safety check: scrape only the 529 university profiles
+    # expected from the published sitemap.
+    if len(english_urls) != 529:
+        raise RuntimeError(
+            f"Expected 529 university profiles, "
+            f"but found {len(english_urls)}"
+        )
 
     results = []
     failed = []
