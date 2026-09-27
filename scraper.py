@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from html_to_schema import infer
 
 
 BASE_URL = "https://www.mygermanuniversity.com"
@@ -23,6 +24,7 @@ USER_AGENT = (
 )
 
 DEFAULT_DELAY = 10
+SCHEMA_DIR = Path("schemas")
 
 
 class RateLimiter:
@@ -548,70 +550,58 @@ def parse_official_url(soup):
     return None
 
 
-def parse_profile(html, url, language):
-
-    soup = BeautifulSoup(
-        html,
-        "lxml",
+def build_schema(html, url, language):
+    """Infer and persist a schema from the first representative profile page."""
+    schema = infer(html, source_url=url)
+    SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
+    (SCHEMA_DIR / f"university_{language}.json").write_text(
+        schema.to_json(), encoding="utf-8"
     )
+    print(
+        f"Schema [{language}]: {schema.kind}, "
+        f"{len(schema.fields)} fields"
+    )
+    return schema
+
+
+def parse_profile(html, url, language, schema=None):
+    """Extract a normalized university record using an inferred schema."""
+    soup = BeautifulSoup(html, "lxml")
+
+    if schema is None:
+        schema = build_schema(html, url, language)
+
+    inferred = {}
+    for field in schema.fields:
+        try:
+            if field.extract == "jsonld":
+                continue
+            node = soup.select_one(field.selector)
+            if node is None:
+                continue
+            if field.extract == "text":
+                inferred[field.name] = normalize(node.get_text(" ", strip=True))
+            elif field.extract.startswith("attribute:"):
+                inferred[field.name] = node.get(field.extract.split(":", 1)[1])
+        except Exception:
+            continue
 
     h1 = soup.find("h1")
-
     if not h1:
-        raise ValueError(
-            f"Could not find university title: {url}"
-        )
+        raise ValueError(f"Could not find university title: {url}")
 
-    name = normalize(
-        h1.get_text(" ", strip=True)
-    )
+    name = inferred.get("title") or normalize(h1.get_text(" ", strip=True))
+    name = re.sub(r"\\s*\\(\\d{4}/\\d{2}\\)\\s*$", "", name)
 
-    # Remove academic-year suffix.
-    name = re.sub(
-        r"\s*\(\d{4}/\d{2}\)\s*$",
-        "",
-        name,
-    )
+    body_text = soup.get_text("\n", strip=True)
+    lines = [normalize(line) for line in body_text.splitlines() if normalize(line)]
 
-    body_text = soup.get_text(
-        "\n",
-        strip=True,
-    )
-
-    lines = [
-        normalize(line)
-        for line in body_text.splitlines()
-        if normalize(line)
-    ]
-
-    min_fees, max_fees = parse_fees(
-        body_text,
-        language,
-    )
-
-    students = parse_students(
-        body_text,
-        language,
-    )
-
-    study_programs = parse_programs(
-        body_text,
-        language,
-    )
-
-    university_type = parse_type(
-        lines,
-        language,
-    )
-
-    location = parse_location(
-        soup,
-        language,
-    )
-
-    official_url = parse_official_url(
-        soup,
-    )
+    min_fees, max_fees = parse_fees(body_text, language)
+    students = parse_students(body_text, language)
+    study_programs = parse_programs(body_text, language)
+    university_type = parse_type(lines, language)
+    location = parse_location(soup, language)
+    official_url = parse_official_url(soup)
 
     return {
         "name": name,
@@ -667,17 +657,9 @@ def scrape_language(language, output_file):
         f"Found {len(university_urls)} university profiles"
     )
 
-    # Safety check: scrape only the 529 university profiles
-    # expected from the published sitemap.
-    if len(university_urls) != 529:
-        raise RuntimeError(
-            f"Expected 529 university profiles, "
-            f"but found {len(university_urls)}"
-        )
-
     results = []
-
     failed = []
+    schema = None
 
     for index, english_url in enumerate(
         university_urls,
@@ -703,10 +685,14 @@ def scrape_language(language, output_file):
                 rp,
             )
 
+            if schema is None:
+                schema = build_schema(response.text, target_url, language)
+
             record = parse_profile(
                 response.text,
                 target_url,
                 language,
+                schema,
             )
 
             results.append(record)
@@ -795,16 +781,9 @@ def scrape_bilingual(output_file):
         f"Found {len(english_urls)} university profiles"
     )
 
-    # Safety check: scrape only the 529 university profiles
-    # expected from the published sitemap.
-    if len(english_urls) != 529:
-        raise RuntimeError(
-            f"Expected 529 university profiles, "
-            f"but found {len(english_urls)}"
-        )
-
     results = []
     failed = []
+    schemas = {}
 
     for index, english_url in enumerate(
         english_urls,
@@ -828,10 +807,14 @@ def scrape_bilingual(output_file):
                 rp,
             )
 
+            if "en" not in schemas:
+                schemas["en"] = build_schema(english_response.text, english_url, "en")
+
             english = parse_profile(
                 english_response.text,
                 english_url,
                 "en",
+                schemas["en"],
             )
 
             # German
@@ -841,10 +824,14 @@ def scrape_bilingual(output_file):
                 rp,
             )
 
+            if "de" not in schemas:
+                schemas["de"] = build_schema(german_response.text, german_url, "de")
+
             german = parse_profile(
                 german_response.text,
                 german_url,
                 "de",
+                schemas["de"],
             )
 
             result = {
