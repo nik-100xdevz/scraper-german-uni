@@ -591,7 +591,7 @@ def parse_profile(html, url, language, schema=None):
         raise ValueError(f"Could not find university title: {url}")
 
     name = inferred.get("title") or normalize(h1.get_text(" ", strip=True))
-    name = re.sub(r"\\s*\\(\\d{4}/\\d{2}\\)\\s*$", "", name)
+    name = re.sub(r"\s*\(\d{4}/\d{2}\)\s*$", "", name)
 
     body_text = soup.get_text("\n", strip=True)
     lines = [normalize(line) for line in body_text.splitlines() if normalize(line)]
