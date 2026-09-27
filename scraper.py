@@ -122,10 +122,11 @@ def parse_sitemap(url, limiter, rp, visited=None):
     visited.add(url)
 
     response = fetch(
-        url,
-        limiter,
-        rp
-    )
+    url,
+    limiter,
+    rp,
+    check_robots=False
+)
 
     content = response.content
 
