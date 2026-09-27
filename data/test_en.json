@@ -1,0 +1,26 @@
+[
+  {
+    "name_en": "ADG Business School an der Steinbeis-Hochschule",
+    "location_en": "Montabaur",
+    "type": "public",
+    "students": null,
+    "study_programs": 11,
+    "min_fees": null,
+    "max_fees": null,
+    "fee_period": "semester",
+    "official_university_url": "https://www.adg-business-school.de/",
+    "source_url": "https://www.mygermanuniversity.com/universities/ADG-Business-School-an-der-Steinbeis-Hochschule"
+  },
+  {
+    "name_en": "AIHE Academic Institute for Higher Education",
+    "location_en": "Lübeck",
+    "type": "private",
+    "students": null,
+    "study_programs": 25,
+    "min_fees": null,
+    "max_fees": null,
+    "fee_period": "semester",
+    "official_university_url": "https://academic-institute.com/en/",
+    "source_url": "https://www.mygermanuniversity.com/universities/AIHE-Academic-Institute-for-Higher-Education"
+  }
+]
