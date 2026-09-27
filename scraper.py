@@ -56,16 +56,78 @@ def normalize(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def get_robots():
+ROBOTS_FETCH_HEADERS = {
+    # Fetch the policy as a normal public robots.txt resource.
+    # The crawler itself continues to identify as USER_AGENT below.
+    "User-Agent": "Mozilla/5.0 (compatible; robots-policy-check/1.0)",
+    "Accept": "text/plain,*/*;q=0.8",
+    "Cache-Control": "no-cache, no-store, max-age=0",
+    "Pragma": "no-cache",
+}
+
+
+def _parse_robots(text):
     rp = urllib.robotparser.RobotFileParser()
     rp.set_url(ROBOTS_URL)
+    rp.parse(text.splitlines())
+    return rp
 
+
+def get_robots():
+    """
+    Fetch and parse the site's current robots.txt explicitly.
+
+    We do not use RobotFileParser.read() here because that delegates the
+    HTTP request to urllib and can receive a stale/edge-cached robots
+    response that does not match the currently published policy.
+
+    The public robots.txt currently allows crawling of /universities/... and
+    only disallows admin and Finder routes. Fail early with a useful
+    diagnostic if that policy ever changes.
+    """
     try:
-        rp.read()
+        response = session.get(
+            ROBOTS_URL,
+            headers=ROBOTS_FETCH_HEADERS,
+            timeout=30,
+        )
+        response.raise_for_status()
+        rp = _parse_robots(response.text)
     except Exception as exc:
         raise RuntimeError(f"Could not read robots.txt: {exc}")
 
+    # Validate the exact path family we intend to crawl.
+    probe_url = f"{BASE_URL}/universities/robots-policy-check"
+
+    if not rp.can_fetch(USER_AGENT, probe_url):
+        # Retry once with a cache-busting request because robots.txt is
+        # frequently cached at the CDN/edge.
+        try:
+            response = session.get(
+                f"{ROBOTS_URL}?_={int(time.time() * 1000)}",
+                headers=ROBOTS_FETCH_HEADERS,
+                timeout=30,
+            )
+            response.raise_for_status()
+            rp = _parse_robots(response.text)
+        except Exception as exc:
+            raise RuntimeError(
+                "The first robots.txt response disallowed /universities/ "
+                f"and the cache-busting retry failed: {exc}"
+            )
+
+    if not rp.can_fetch(USER_AGENT, probe_url):
+        raise PermissionError(
+            "The robots.txt received by the scraper currently disallows "
+            "/universities/... . This is a robots-policy problem, not a "
+            "university-page parsing problem. Check the live robots.txt "
+            f"returned by {ROBOTS_URL}."
+        )
+
     delay = rp.crawl_delay(USER_AGENT)
+
+    if delay is None:
+        delay = rp.crawl_delay("*")
 
     if delay is None:
         delay = DEFAULT_DELAY
@@ -617,6 +679,25 @@ def parse_profile(html, url, language, schema=None):
     }
 
 
+def format_output_record(record, language):
+    """
+    Convert the internal normalized record into the requested language-
+    specific public schema.
+    """
+    return {
+        f"name_{language}": record["name"],
+        f"location_{language}": record["location"],
+        "type": record["type"],
+        "students": record["students"],
+        "study_programs": record["study_programs"],
+        "min_fees": record["min_fees"],
+        "max_fees": record["max_fees"],
+        "fee_period": record["fee_period"],
+        "official_university_url": record["official_university_url"],
+        "source_url": record["source_url"],
+    }
+
+
 def scrape_language(language, output_file):
 
     print("\nReading robots.txt...")
@@ -695,7 +776,9 @@ def scrape_language(language, output_file):
                 schema,
             )
 
-            results.append(record)
+            results.append(
+                format_output_record(record, language)
+            )
 
         except Exception as exc:
 
@@ -918,10 +1001,22 @@ def main():
     args = parser.parse_args()
 
     if args.lang == "both":
+        # Keep the language datasets independent. If German has a missing
+        # translation/page, the English dataset is still fully preserved.
+        if args.out == "data/universities.json":
+            english_output = "data/universities_en.json"
+            german_output = "data/universities_de.json"
+        else:
+            base = Path(args.out)
+            english_output = str(
+                base.with_name(f"{base.stem}_en{base.suffix or '.json'}")
+            )
+            german_output = str(
+                base.with_name(f"{base.stem}_de{base.suffix or '.json'}")
+            )
 
-        scrape_bilingual(
-            args.out
-        )
+        scrape_language("en", english_output)
+        scrape_language("de", german_output)
 
     elif args.lang == "en":
 
