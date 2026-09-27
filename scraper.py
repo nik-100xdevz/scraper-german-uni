@@ -698,7 +698,7 @@ def format_output_record(record, language):
     }
 
 
-def scrape_language(language, output_file):
+def scrape_language(language, output_file, limit=None):
 
     print("\nReading robots.txt...")
 
@@ -733,6 +733,13 @@ def scrape_language(language, output_file):
     university_urls = sorted(
         university_urls
     )
+
+    if limit is not None:
+        university_urls = university_urls[:limit]
+        print(
+            f"Limiting run to first {len(university_urls)} "
+            "university profiles"
+        )
 
     print(
         f"Found {len(university_urls)} university profiles"
@@ -838,150 +845,6 @@ def scrape_language(language, output_file):
         )
 
 
-def scrape_bilingual(output_file):
-
-    print("\nReading robots.txt...")
-
-    rp, delay = get_robots()
-
-    print(f"Crawl delay: {delay} seconds")
-
-    limiter = RateLimiter(delay)
-
-    sitemap_urls = parse_sitemap(
-        SITEMAP_URL,
-        limiter,
-        rp,
-    )
-
-    english_urls = sorted({
-        canonical_english_url(url)
-        for url in sitemap_urls
-        if is_university_profile(url)
-    })
-
-    print(
-        f"Found {len(english_urls)} university profiles"
-    )
-
-    results = []
-    failed = []
-    schemas = {}
-
-    for index, english_url in enumerate(
-        english_urls,
-        start=1,
-    ):
-
-        german_url = german_url_from_english(
-            english_url
-        )
-
-        print(
-            f"\n[{index}/{len(english_urls)}]"
-        )
-
-        try:
-
-            # English
-            english_response = fetch(
-                english_url,
-                limiter,
-                rp,
-            )
-
-            if "en" not in schemas:
-                schemas["en"] = build_schema(english_response.text, english_url, "en")
-
-            english = parse_profile(
-                english_response.text,
-                english_url,
-                "en",
-                schemas["en"],
-            )
-
-            # German
-            german_response = fetch(
-                german_url,
-                limiter,
-                rp,
-            )
-
-            if "de" not in schemas:
-                schemas["de"] = build_schema(german_response.text, german_url, "de")
-
-            german = parse_profile(
-                german_response.text,
-                german_url,
-                "de",
-                schemas["de"],
-            )
-
-            result = {
-                "name_en": english["name"],
-                "name_de": german["name"],
-
-                "location_de": german["location"],
-                "location_en": english["location"],
-
-                "type": english["type"],
-
-                "students": english["students"],
-
-                "study_programs": english["study_programs"],
-
-                "min_fees": english["min_fees"],
-                "max_fees": english["max_fees"],
-
-                "fee_period": "semester",
-
-                "official_university_url":
-                    english["official_university_url"],
-
-                "source_url": english_url,
-            }
-
-            results.append(result)
-
-        except Exception as exc:
-
-            print(
-                f"FAILED: {english_url}"
-            )
-            print(exc)
-
-            failed.append({
-                "url_en": english_url,
-                "url_de": german_url,
-                "error": str(exc),
-            })
-
-    Path(output_file).parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            results,
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    print(
-        f"\nSaved {len(results)} records"
-    )
-
-    print(
-        f"Output: {output_file}"
-    )
-
 
 def main():
 
@@ -996,6 +859,13 @@ def main():
     parser.add_argument(
         "--out",
         default="data/universities.json",
+    )
+
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Scrape only the first N university profiles",
     )
 
     args = parser.parse_args()
@@ -1015,14 +885,15 @@ def main():
                 base.with_name(f"{base.stem}_de{base.suffix or '.json'}")
             )
 
-        scrape_language("en", english_output)
-        scrape_language("de", german_output)
+        scrape_language("en", english_output, args.limit)
+        scrape_language("de", german_output, args.limit)
 
     elif args.lang == "en":
 
         scrape_language(
             "en",
             args.out,
+            args.limit,
         )
 
     else:
@@ -1030,6 +901,7 @@ def main():
         scrape_language(
             "de",
             args.out,
+            args.limit,
         )
 
 
