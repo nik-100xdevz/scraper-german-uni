@@ -56,3 +56,38 @@ Because MyGermanUniversity publishes a 10-second crawl delay, a full two-languag
 The scraper fetches and parses the site's current `/robots.txt` explicitly instead of relying on `urllib.robotparser.read()`. It also retries once with cache-busting if the received policy incorrectly appears to disallow `/universities/...`.
 
 The scraper does not include a robots-bypass switch. If the site's published robots policy changes, the scraper stops rather than ignoring it.
+
+
+## API-first scraper
+
+The UniFinder frontend exposes its university search through:
+
+```
+https://api.mygermanuniversity.com/api/universities/all-search?page=1
+```
+
+Use `api_scraper.py` to collect the structured API data instead of visiting every university HTML page.
+
+### Test one API page
+
+```bash
+python api_scraper.py --pages 1
+```
+
+This writes:
+
+```
+data/universities_en.json
+data/universities_de.json
+data/raw_api/page_0001.json
+```
+
+The raw file is important: if the API uses a field name different from the common aliases in `api_scraper.py`, add that key to the corresponding alias list instead of rewriting the scraper.
+
+### Full API scrape
+
+```bash
+python api_scraper.py
+```
+
+The API scraper still checks `robots.txt` before requesting the endpoint. It does not bypass a published robots restriction.
