@@ -1,0 +1,22 @@
+{
+  "kind": "listing",
+  "record_selector": "div.content-wrapper > div",
+  "record_count": 7,
+  "source_url": "https://www.mygermanuniversity.com/de/universities/ADG-Business-School-an-der-Steinbeis-Hochschule",
+  "fields": [
+    {
+      "name": "url",
+      "selector": "a",
+      "extract": "attribute:href",
+      "type": "url",
+      "example": "https://www.adg-business-school.de/"
+    },
+    {
+      "name": "image",
+      "selector": "img.block-img",
+      "extract": "attribute:src",
+      "type": "url",
+      "example": "/assets/icons/student-grey.png"
+    }
+  ]
+}
